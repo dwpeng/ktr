@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod encoding;
+pub mod scanner;
 pub mod types;
 
 use clap::Parser;
