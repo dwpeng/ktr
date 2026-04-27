@@ -18,7 +18,6 @@ struct ScanState<'a> {
     run_start: Option<usize>,
     run_end: usize,
     run_periods: Vec<usize>,
-    first_pos_for_period: HashMap<usize, usize>,
 
     // Period voting
     period_votes: HashMap<usize, VoteInfo>,
@@ -40,7 +39,6 @@ impl<'a> ScanState<'a> {
             run_start: None,
             run_end: 0,
             run_periods: Vec::new(),
-            first_pos_for_period: HashMap::new(),
             period_votes: HashMap::new(),
             candidates: Vec::new(),
         }
@@ -181,7 +179,6 @@ impl<'a> ScanState<'a> {
         self.run_start = None;
         self.run_end = 0;
         self.run_periods.clear();
-        self.first_pos_for_period.clear();
     }
 
     fn periodic_cleanup(&mut self, i: usize) {
