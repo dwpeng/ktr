@@ -1,3 +1,4 @@
+pub mod align;
 pub mod cli;
 pub mod encoding;
 pub mod scanner;
