@@ -1,6 +1,7 @@
 pub mod align;
 pub mod cli;
 pub mod encoding;
+pub mod output;
 pub mod scanner;
 pub mod types;
 pub mod validate;
