@@ -12,6 +12,7 @@ pub struct Config {
 impl Config {
     pub fn new(k: usize, max_period: usize, min_run_length: usize,
                min_matches: usize, min_identity: f64) -> Self {
+        assert!(k > 0 && k <= 32, "kmer length must be between 1 and 32, got {}", k);
         Self {
             k,
             max_period,

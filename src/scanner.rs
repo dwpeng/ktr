@@ -11,7 +11,6 @@ struct ScanState<'a> {
 
     // Data structures
     last_seen: HashMap<u64, usize>,
-    ring: Vec<u8>,
     window: VecDeque<(usize, u64)>,
 
     // Run tracking
@@ -34,7 +33,6 @@ impl<'a> ScanState<'a> {
             seq_name,
             seq_len: seq.len(),
             last_seen: HashMap::new(),
-            ring: vec![0u8; config.window_size],
             window: VecDeque::with_capacity(config.window_size),
             run_start: None,
             run_end: 0,
@@ -50,8 +48,6 @@ impl<'a> ScanState<'a> {
         let last_pos = self.seq_len.saturating_sub(k);
 
         for i in 0..=last_pos {
-            let idx = i % self.config.window_size;
-
             // Check for invalid bases (N etc.) before encoding
             let mut has_valid = true;
             for j in 0..k {
@@ -64,7 +60,6 @@ impl<'a> ScanState<'a> {
             if !has_valid {
                 self.flush_run(i + k);
                 self.reset_run();
-                self.ring[idx] = 1;
                 // Don't insert into last_seen or window for invalid positions
                 continue;
             }
@@ -76,7 +71,7 @@ impl<'a> ScanState<'a> {
                     let d = i - prev_pos;
                     if d <= self.config.max_period {
                         // REPEAT within max_period
-                        self.handle_repeat(i, code, d, idx);
+                        self.handle_repeat(i, code, d);
                         self.update_structures(code, i);
                         self.periodic_cleanup(i);
                         continue;
@@ -84,13 +79,11 @@ impl<'a> ScanState<'a> {
                     // d > max_period: treat as non-repeat
                     self.flush_run(i + k);
                     self.reset_run();
-                    self.ring[idx] = 1;
                 }
                 None => {
                     // NOT a repeat
                     self.flush_run(i + k);
                     self.reset_run();
-                    self.ring[idx] = 1;
                 }
             }
 
@@ -103,7 +96,7 @@ impl<'a> ScanState<'a> {
         std::mem::take(&mut self.candidates)
     }
 
-    fn handle_repeat(&mut self, i: usize, _code: u64, d: usize, idx: usize) {
+    fn handle_repeat(&mut self, i: usize, _code: u64, d: usize) {
         // Update period votes
         self.period_votes.entry(d)
             .and_modify(|v| {
@@ -121,9 +114,6 @@ impl<'a> ScanState<'a> {
         if !self.run_periods.contains(&d) {
             self.run_periods.push(d);
         }
-
-        // Mark as repeat in ring buffer (0 = repeated kmer)
-        self.ring[idx] = 0;
     }
 
     fn update_structures(&mut self, code: u64, pos: usize) {

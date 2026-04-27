@@ -52,8 +52,8 @@ pub fn wdp_align(
                 indel_rate: indel,
             });
 
-            // Refine consensus by merging
-            merge_into_consensus(&mut consensus, window);
+            // Refine consensus by merging (cap to 2x the guessed period)
+            merge_into_consensus(&mut consensus, window, Some(guess_period * 2));
             pos += consensus.len();
         } else {
             // Try sliding alignment with small offsets
@@ -112,6 +112,9 @@ pub struct WdpResult {
 
 /// Align a text window against a consensus pattern using Smith-Waterman DP.
 /// Returns (identity, indel_rate).
+///
+/// Uses a full DP + traceback matrix to compute identity from the actual
+/// alignment path, not from naive zipping.
 fn align_window_to_consensus(
     window: &[u8],
     consensus: &[u8],
@@ -123,11 +126,17 @@ fn align_window_to_consensus(
         return (0.0, 0.0);
     }
 
-    // Smith-Waterman DP with linear gap penalty
-    let gap_penalty = -2i32;
+    // Use gap_open_penalty as the linear gap penalty (approximates TRF behaviour).
+    let gap_penalty = params.gap_open_penalty;
 
-    let mut prev = vec![0i32; m + 1];
-    let mut curr = vec![0i32; m + 1];
+    // DP score matrix and traceback directions.
+    // trace[i][j]: 0 = stop (score hit 0), 1 = diagonal, 2 = up, 3 = left
+    let mut dp = vec![vec![0i32; m + 1]; n + 1];
+    let mut trace = vec![vec![0u8; m + 1]; n + 1];
+
+    let mut max_score = 0i32;
+    let mut max_i = 0;
+    let mut max_j = 0;
 
     for i in 1..=n {
         for j in 1..=m {
@@ -137,30 +146,84 @@ fn align_window_to_consensus(
                 params.mismatch_penalty
             };
 
-            let diag = prev[j - 1] + match_score;
-            let left = curr[j - 1] + gap_penalty;
-            let up = prev[j] + gap_penalty;
+            let diag = dp[i - 1][j - 1] + match_score;
+            let up = dp[i - 1][j] + gap_penalty;
+            let left = dp[i][j - 1] + gap_penalty;
 
-            curr[j] = diag.max(left).max(up).max(0);
+            // Smith-Waterman recurrence: pick the best of the three or 0.
+            if diag >= up && diag >= left && diag > 0 {
+                dp[i][j] = diag;
+                trace[i][j] = 1;
+            } else if up >= left && up > 0 {
+                dp[i][j] = up;
+                trace[i][j] = 2;
+            } else if left > 0 {
+                dp[i][j] = left;
+                trace[i][j] = 3;
+            } else {
+                dp[i][j] = 0;
+                trace[i][j] = 0;
+            }
+
+            if dp[i][j] > max_score {
+                max_score = dp[i][j];
+                max_i = i;
+                max_j = j;
+            }
         }
-        std::mem::swap(&mut prev, &mut curr);
     }
 
-    // Compute identity from direct base comparison
-    let matches = window.iter()
-        .zip(consensus.iter().cycle())
-        .filter(|(a, b)| a == b)
-        .count();
-    let total = window.len().max(consensus.len());
+    // Trace back from the cell with the maximum score to compute alignment stats.
+    let mut matches = 0usize;
+    let mut aligned_len = 0usize;
+    let mut i = max_i;
+    let mut j = max_j;
 
-    let identity = matches as f64 / total as f64;
-    let indel_rate = (total - matches) as f64 / total as f64;
+    while i > 0 && j > 0 && trace[i][j] != 0 {
+        match trace[i][j] {
+            1 => {
+                // Diagonal: aligned bases
+                if window[i - 1] == consensus[j - 1] {
+                    matches += 1;
+                }
+                aligned_len += 1;
+                i -= 1;
+                j -= 1;
+            }
+            2 => {
+                // Up: gap in consensus (insertion in window)
+                aligned_len += 1;
+                i -= 1;
+            }
+            3 => {
+                // Left: gap in window (deletion)
+                aligned_len += 1;
+                j -= 1;
+            }
+            _ => break,
+        }
+    }
+
+    let identity = if aligned_len > 0 {
+        matches as f64 / aligned_len as f64
+    } else {
+        0.0
+    };
+    let indel_rate = if aligned_len > 0 {
+        (aligned_len - matches) as f64 / aligned_len as f64
+    } else {
+        0.0
+    };
 
     (identity, indel_rate)
 }
 
 /// Merge a newly aligned copy into the consensus sequence.
-fn merge_into_consensus(consensus: &mut Vec<u8>, copy: &[u8]) {
+///
+/// Conservative approach: mismatches keep the original consensus base.
+/// Never extends on a longer copy; optionally caps total length to prevent
+/// unbounded growth.
+fn merge_into_consensus(consensus: &mut Vec<u8>, copy: &[u8], max_len: Option<usize>) {
     let min_len = consensus.len().min(copy.len());
     for i in 0..min_len {
         if consensus[i] != copy[i] {
@@ -168,9 +231,15 @@ fn merge_into_consensus(consensus: &mut Vec<u8>, copy: &[u8]) {
             // keep consensus unchanged (conservative approach)
         }
     }
-    // If copy is longer, extend consensus
-    if copy.len() > consensus.len() {
-        consensus.extend_from_slice(&copy[consensus.len()..]);
+    // Only ever truncate, never extend -- be conservative.
+    if copy.len() < consensus.len() {
+        consensus.truncate(copy.len());
+    }
+    // Cap length to prevent unbounded growth.
+    if let Some(max) = max_len {
+        if consensus.len() > max {
+            consensus.truncate(max);
+        }
     }
 }
 
