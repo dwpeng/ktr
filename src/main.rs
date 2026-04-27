@@ -3,6 +3,7 @@ pub mod cli;
 pub mod encoding;
 pub mod scanner;
 pub mod types;
+pub mod validate;
 
 use clap::Parser;
 use cli::Cli;
