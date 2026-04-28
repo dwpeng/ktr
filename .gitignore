@@ -2,4 +2,6 @@
 *.tsv
 /docs
 justfile
-
+.claude
+Cargo.lock
+*dat
