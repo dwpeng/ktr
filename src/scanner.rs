@@ -1,4 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+use rustc_hash::FxHashMap;
 use crate::types::{Config, Candidate, VoteInfo};
 use crate::encoding::{encode_kmer, update_kmer};
 
@@ -10,7 +11,7 @@ struct ScanState<'a> {
     seq_len: usize,
 
     // Data structures
-    last_seen: HashMap<u64, usize>,
+    last_seen: FxHashMap<u64, usize>,
     window: VecDeque<(usize, u64)>,
 
     // Run tracking
@@ -20,7 +21,7 @@ struct ScanState<'a> {
 
 
     // Period voting
-    period_votes: HashMap<usize, VoteInfo>,
+    period_votes: FxHashMap<usize, VoteInfo>,
 
     // Output
     candidates: Vec<Candidate>,
@@ -33,12 +34,12 @@ impl<'a> ScanState<'a> {
             seq,
             seq_name,
             seq_len: seq.len(),
-            last_seen: HashMap::new(),
+            last_seen: FxHashMap::default(),
             window: VecDeque::with_capacity(config.window_size),
             run_start: None,
             run_end: 0,
             run_periods: Vec::new(),
-            period_votes: HashMap::new(),
+            period_votes: FxHashMap::default(),
             candidates: Vec::new(),
         }
     }

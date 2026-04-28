@@ -7,3 +7,4 @@ edition = "2024"
 clap = { version = "4.6.1", features = ["derive"] }
 helicase = { version = "0.1.1", features = ["packed-seq"] }
 rayon = "1.12.0"
+rustc-hash = "2.1.2"
