@@ -74,10 +74,10 @@ Each candidate is validated with wraparound dynamic programming:
 
 | Flag                    | Default | Description                              |
 |-------------------------|---------|------------------------------------------|
-| `--k`                   | 5       | Kmer length (1–32). Longer kmers reduce  |
+| `-k` / `--k`            | 5       | Kmer length (1–32). Longer kmers reduce  |
 |                         |         | false positives but miss short periods.  |
-| `--max-period`          | 5000    | Maximum TR period to detect. Also sets   |
-|                         |         | sliding window = max_period × 2.         |
+| `-p` / `--period`       | 5000    | Maximum TR period to detect. Also sets   |
+|                         |         | sliding window = period × 2.             |
 | `--min-run-length`      | 40      | Minimum run length (bases) for Phase 1.  |
 | `--min-matches`         | 3       | Minimum period votes for a candidate.    |
 | `--min-concentration`   | 0.20    | Minimum vote concentration for a run     |
@@ -91,37 +91,35 @@ Each candidate is validated with wraparound dynamic programming:
 
 | Flag             | Default  | Description                             |
 |------------------|----------|-----------------------------------------|
-| `--threads`      | 0        | Thread count (0 = all available). Both  |
+| `-t` / `--threads`  | 0     | Thread count (0 = all available). Both  |
 |                  |          | Phase 1 chunks and Phase 2 candidates   |
 |                  |          | are parallelized via Rayon.             |
-| `--chunk-size`   | 500000   | Chunk size for Phase 1 (0 = no chunk).  |
+| `-c` / `--chunk-size` | 500000 | Chunk size for Phase 1 (0 = no chunk).|
 
 ### Output
 
 | Flag        | Default | Description                           |
 |-------------|---------|---------------------------------------|
-| `-o`        | stdout  | Output file path.                     |
-| `--debug`   | off     | Append consensus and TR sequence to   |
+| `-o` / `--output` | stdout | Output file path.                |
+| `-d` / `--debug`  | off    | Append consensus and TR sequence to   |
 |             |         | each output row.                      |
 
-## Comparison with TRF
+### CLI Examples
 
-ktr is inspired by Tandem Repeats Finder (TRF) but uses a different Phase 1
-approach. Key differences:
+```bash
+# Short flags
+ktr -k 7 -p 2000 genome.fasta -o out.tsv
 
-- **Phase 1** — TRF uses alignment-based detection; ktr uses kmer voting. This
-  makes ktr faster for large genomes but unable to detect TRs with period <
-  kmer length.
-- **Parallelism** — ktr parallelizes both Phase 1 (chunk-level) and Phase 2
-  (candidate-level) via Rayon.
-- **Adaptive alignment** — WDP parameters are automatically scaled by period
-  length: log₂(period)-based scaling softens penalties for long-period TRs.
-- **Scoring** — ktr uses a simplified score (`identity×100−indel×50`). TRF's
-  probabilistic scoring accounts for additional factors.
+# Long flags
+ktr --k 7 --period 2000 genome.fasta --output out.tsv
 
-For a typical bacterial genome (E. coli), ktr detects 50–60 TRs with period ≥ 5,
-covering ~80% of TRF-detected TRs (period ≥ 40). Most misses are microsatellites
-(period < 20) below the kmer detection threshold.
+# Sensitivity tuning
+ktr --min-concentration 0.30 --min-score 80 genome.fasta
+
+# Performance
+ktr -t 8 -c 100000 genome.fasta
+```
+
 
 ## Building
 
