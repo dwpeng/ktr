@@ -74,35 +74,27 @@ Each candidate is validated with wraparound dynamic programming:
 
 | Flag                    | Default | Description                              |
 |-------------------------|---------|------------------------------------------|
-| `-k` / `--k`            | 5       | Kmer length (1–32). Longer kmers reduce  |
-|                         |         | false positives but miss short periods.  |
-| `-p` / `--period`       | 5000    | Maximum TR period to detect. Also sets   |
-|                         |         | sliding window = period × 2.             |
-| `--min-run-length`      | 40      | Minimum run length (bases) for Phase 1.  |
-| `--min-matches`         | 3       | Minimum period votes for a candidate.    |
-| `--min-concentration`   | 0.20    | Minimum vote concentration for a run     |
-|                         |         | (0–1). Lower = more sensitive, higher =  |
-|                         |         | more precise.                            |
+| `-k` / `--k`            | 5       | Kmer length (1–32). Longer kmers reduce false positives but miss short periods. |
+| `-p` / `--period`       | 5000    | Maximum TR period to detect. Also sets sliding window = period × 2. |
+| `--min-run-length`      | 40      | Minimum run length (bases) for Phase 1. |
+| `--min-matches`         | 3       | Minimum period votes for a candidate. |
+| `--min-concentration`   | 0.20    | Minimum vote concentration for a run (0–1). Lower = more sensitive, higher = more precise. |
 | `--min-identity`        | 0.70    | Minimum copy identity for Phase 2 (0–1). |
-| `--min-score`           | 0       | Minimum score for output filtering.      |
-|                         |         | Score ≈ 55–100 for typical TRs.          |
+| `--min-score`           | 0       | Minimum score for output filtering. Score ≈ 55–100 for typical TRs. |
 
 ### Performance
 
 | Flag             | Default  | Description                             |
 |------------------|----------|-----------------------------------------|
-| `-t` / `--threads`  | 0     | Thread count (0 = all available). Both  |
-|                  |          | Phase 1 chunks and Phase 2 candidates   |
-|                  |          | are parallelized via Rayon.             |
-| `-c` / `--chunk-size` | 500000 | Chunk size for Phase 1 (0 = no chunk).|
+| `-t` / `--threads`  | 0     | Thread count (0 = all available). Both Phase 1 chunks and Phase 2 candidates are parallelized via Rayon. |
+| `-c` / `--chunk-size` | 500000 | Chunk size for Phase 1 (0 = no chunk). |
 
 ### Output
 
 | Flag        | Default | Description                           |
 |-------------|---------|---------------------------------------|
-| `-o` / `--output` | stdout | Output file path.                |
-| `-d` / `--debug`  | off    | Append consensus and TR sequence to   |
-|             |         | each output row.                      |
+| `-o` / `--output` | stdout | Output file path. |
+| `-d` / `--debug`  | off    | Append consensus and TR sequence to each output row. |
 
 ### CLI Examples
 
