@@ -11,7 +11,7 @@ fn test_ktr_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Streaming tandem repeat finder"));
     assert!(stdout.contains("--k"));
-    assert!(stdout.contains("--max-period"));
+    assert!(stdout.contains("--period"));
     assert!(stdout.contains("--min-identity"));
 }
 
@@ -21,7 +21,7 @@ fn test_ktr_on_simple_repeat() {
         .arg("test_data/simple_repeat.fasta")
         .arg("--k")
         .arg("5")
-        .arg("--max-period")
+        .arg("--period")
         .arg("50")
         .arg("--min-run-length")
         .arg("10")
