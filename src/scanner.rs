@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use crate::types::{Config, Candidate, VoteInfo};
-use crate::encoding::{encode_kmer, is_valid_base};
+use crate::encoding::{encode_kmer, update_kmer};
 
 /// Internal state for the streaming Phase 1 scan.
 struct ScanState<'a> {
@@ -47,24 +47,34 @@ impl<'a> ScanState<'a> {
     fn run(&mut self) -> Vec<Candidate> {
         let k = self.config.k;
         let last_pos = self.seq_len.saturating_sub(k);
+        let mut code = 0u64;
+        let mut valid = false;
+
         for i in 0..=last_pos {
-            // Check for invalid bases (N etc.) before encoding
-            let mut has_valid = true;
-            for j in 0..k {
-                if i + j >= self.seq_len || !is_valid_base(self.seq[i + j]) {
-                    has_valid = false;
-                    break;
+            // Rebuild from scratch when the sliding window has no valid kmer
+            // (first iteration or after an invalid base slides through).
+            if !valid {
+                if i + k > self.seq_len {
+                    self.flush_run(i + k);
+                    self.reset_run();
+                    continue;
                 }
-            }
-
-            if !has_valid {
-                self.flush_run(i + k);
-                self.reset_run();
-                // Don't insert into last_seen or window for invalid positions
-                continue;
-            }
-
-            let code = encode_kmer(self.seq, i, k).unwrap();
+                match encode_kmer(self.seq, i, k) {
+                    Some(c) => { code = c; valid = true; }
+                    None => { self.flush_run(i + k); self.reset_run(); continue; }
+                }
+            } else {
+                let enter = i + k - 1;
+                match update_kmer(code, self.seq[enter], k) {
+                    Some(c) => code = c,
+                    None => {
+                        self.flush_run(i + k);
+                        self.reset_run();
+                        valid = false;
+                        continue;
+                    }
+                }
+            };
 
             match self.last_seen.get(&code).copied() {
                 Some(prev_pos) => {
