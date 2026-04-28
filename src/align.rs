@@ -120,8 +120,8 @@ pub struct WdpResult {
 /// Align a text window against a consensus pattern using Smith-Waterman DP.
 /// Returns (identity, indel_rate).
 ///
-/// Uses a full DP + traceback matrix to compute identity from the actual
-/// alignment path, not from naive zipping.
+/// Uses flattened arrays for contiguous memory access and smaller (i16) score
+/// storage to improve cache behaviour.
 fn align_window_to_consensus(
     window: &[u8],
     consensus: &[u8],
@@ -133,60 +133,63 @@ fn align_window_to_consensus(
         return (0.0, 0.0);
     }
 
-    // Use gap_open_penalty as the linear gap penalty (approximates TRF behaviour).
+    // Use gap_open_penalty as the linear gap penalty.
     let gap_penalty = params.gap_open_penalty;
+    let cols = m + 1;
 
-    // DP score matrix and traceback directions.
-    // trace[i][j]: 0 = stop (score hit 0), 1 = diagonal, 2 = up, 3 = left
-    let mut dp = vec![vec![0i32; m + 1]; n + 1];
-    let mut trace = vec![vec![0u8; m + 1]; n + 1];
+    // Single flat allocations ─ far better cache locality than Vec<Vec>.
+    let mut dp = vec![0i16; (n + 1) * cols];
+    let mut trace = vec![0u8; (n + 1) * cols];
 
     let mut max_score = 0i32;
-    let mut max_i = 0;
-    let mut max_j = 0;
+    let mut max_i = 0usize;
+    let mut max_j = 0usize;
 
     for i in 1..=n {
+        let row = i * cols;
+        let prev = (i - 1) * cols;
+        let wi = window[i - 1];
+
         for j in 1..=m {
-            let match_score = if window[i - 1] == consensus[j - 1] {
+            //  trace: 0 = stop, 1 = diagonal, 2 = up, 3 = left
+            let match_score = if wi == consensus[j - 1] {
                 params.match_score
             } else {
                 params.mismatch_penalty
             };
 
-            let diag = dp[i - 1][j - 1] + match_score;
-            let up = dp[i - 1][j] + gap_penalty;
-            let left = dp[i][j - 1] + gap_penalty;
+            let diag = dp[prev + j - 1] as i32 + match_score;
+            let up   = dp[prev + j]     as i32 + gap_penalty;
+            let left = dp[row  + j - 1] as i32 + gap_penalty;
 
-            // Smith-Waterman recurrence: pick the best of the three or 0.
-            if diag >= up && diag >= left && diag > 0 {
-                dp[i][j] = diag;
-                trace[i][j] = 1;
+            let (val, dir) = if diag >= up && diag >= left && diag > 0 {
+                (diag, 1u8)
             } else if up >= left && up > 0 {
-                dp[i][j] = up;
-                trace[i][j] = 2;
+                (up, 2u8)
             } else if left > 0 {
-                dp[i][j] = left;
-                trace[i][j] = 3;
+                (left, 3u8)
             } else {
-                dp[i][j] = 0;
-                trace[i][j] = 0;
-            }
+                (0, 0u8)
+            };
 
-            if dp[i][j] > max_score {
-                max_score = dp[i][j];
+            dp[row + j] = val as i16;
+            trace[row + j] = dir;
+
+            if val > max_score {
+                max_score = val;
                 max_i = i;
                 max_j = j;
             }
         }
     }
 
-    // Trace back from the cell with the maximum score to compute matches.
+    // Trace back from the cell with the maximum score to count matches.
     let mut matches = 0usize;
     let mut i = max_i;
     let mut j = max_j;
 
-    while i > 0 && j > 0 && trace[i][j] != 0 {
-        match trace[i][j] {
+    while i > 0 && j > 0 {
+        match trace[i * cols + j] {
             1 => {
                 if window[i - 1] == consensus[j - 1] {
                     matches += 1;
@@ -194,12 +197,8 @@ fn align_window_to_consensus(
                 i -= 1;
                 j -= 1;
             }
-            2 => {
-                i -= 1;
-            }
-            3 => {
-                j -= 1;
-            }
+            2 => i -= 1,
+            3 => j -= 1,
             _ => break,
         }
     }
