@@ -1,5 +1,5 @@
 use crate::types::{Candidate, TandemRepeat, Config, CopyInfo, AlignParams};
-use crate::align::wdp_align;
+use crate::align::{wdp_align, SmithWaterman};
 
 /// Validate a candidate from Phase 1 and produce a TandemRepeat record.
 /// Returns None if the candidate fails validation checks.
@@ -23,6 +23,7 @@ pub fn validate_candidate(
     }
 
     // 3. Run WDP alignment (unit_start = candidate start, not context start)
+    let aligner = SmithWaterman;
     let wdp_result = wdp_align(
         full_sequence,
         context_start,
@@ -31,6 +32,7 @@ pub fn validate_candidate(
         d,
         &params,
         config.min_identity,
+        &aligner,
     )?;
 
     // 3. Extract consensus from copies

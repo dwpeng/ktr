@@ -1,10 +1,31 @@
 use crate::types::{AlignParams, CopyInfo};
 
+/// Abstraction for pairwise alignment (window vs consensus).
+///
+/// Different implementations can be plugged in: flattened SW (default),
+/// SSE/AVX2 striped, banded, or third-party backends.
+pub trait PairwiseAligner {
+    /// Align `window` against `consensus` and return `(identity, indel_rate)`.
+    ///
+    /// `identity` = matches / max(len(window), len(consensus))
+    /// `indel_rate` = (total - matches) / total
+    fn align(&self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64);
+}
+
+/// Default Smith-Waterman implementation using flattened arrays.
+pub struct SmithWaterman;
+
+impl PairwiseAligner for SmithWaterman {
+    fn align(&self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64) {
+        align_window_to_consensus(window, consensus, params)
+    }
+}
+
 /// Run TRF-style wraparound DP on a candidate region.
 ///
 /// Given a sequence and a guessed period, iteratively:
 /// 1. Build/refine a consensus pattern of length `period`
-/// 2. Align subsequent period-length windows to the consensus
+/// 2. Align subsequent period-length windows to the consensus via `aligner`
 /// 3. Track copy boundaries and compute identity
 /// 4. Return the list of copies found
 pub fn wdp_align(
@@ -15,6 +36,7 @@ pub fn wdp_align(
     guess_period: usize,
     params: &AlignParams,
     min_identity: f64,
+    aligner: &impl PairwiseAligner,
 ) -> Option<WdpResult> {
     if end <= start || guess_period == 0 {
         return None;
@@ -49,7 +71,7 @@ pub fn wdp_align(
         let window = &region[pos..window_end];
 
         // Align window against consensus
-        let (identity, indel) = align_window_to_consensus(window, &consensus, params);
+        let (identity, indel) = aligner.align(window, &consensus, params);
 
         if identity >= min_identity {
             copies.push(CopyInfo {
@@ -74,7 +96,7 @@ pub fn wdp_align(
                     break;
                 }
                 let test_window = &region[pos + offset..test_end];
-                let (test_idy, _) = align_window_to_consensus(test_window, &consensus, params);
+                let (test_idy, _) = aligner.align(test_window, &consensus, params);
                 if test_idy >= min_identity {
                     pos += offset;
                     found = true;
@@ -247,6 +269,10 @@ fn merge_into_consensus(consensus: &mut Vec<u8>, copy: &[u8], max_len: Option<us
 mod tests {
     use super::*;
 
+    fn sw() -> SmithWaterman {
+        SmithWaterman
+    }
+
     #[test]
     fn test_wdp_perfect_repeat() {
         let unit = b"ACGT";
@@ -255,7 +281,7 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &sw());
         assert!(result.is_some());
         let result = result.unwrap();
         assert!(result.copies.len() >= 2);
@@ -272,7 +298,7 @@ mod tests {
         // Introduce a substitution
         seq[6] = b'T';
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.5);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.5, &sw());
         assert!(result.is_some());
     }
 
@@ -280,7 +306,7 @@ mod tests {
     fn test_wdp_no_repeat() {
         let seq = b"GGGGGAAAAACCCCCTTTTTAA";
         let params = AlignParams::default();
-        let result = wdp_align(seq, 0, seq.len(), 0, 5, &params, 0.7);
+        let result = wdp_align(seq, 0, seq.len(), 0, 5, &params, 0.7, &sw());
         assert!(result.is_none());
     }
 
@@ -292,7 +318,7 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &sw());
         assert!(result.is_some());
         let r = result.unwrap();
         // Perfect repeat should have high score
