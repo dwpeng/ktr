@@ -151,13 +151,15 @@ impl<'a> ScanState<'a> {
                 // Subtract one period to find the true TR start.
                 let tr_start = v.first_pos.saturating_sub(d);
                 let tr_end = (v.cluster_end + self.config.k).min(end_pos);
-                if tr_end <= tr_start {
-                    return None;
-                }
-                let tr_len = tr_end - tr_start;
-                if tr_len >= self.config.min_run_length
+                // Use the overlap of this run with the period span so that
+                // mutations (which fragment the run) don't pull in sequence
+                // from before the current fragment.
+                let eff_start = rs.max(tr_start);
+                let eff_end = tr_end.max(eff_start);
+                let eff_len = eff_end - eff_start;
+                if eff_len >= self.config.min_run_length
                     && v.total >= self.config.min_matches
-                    && (v.total as f64 / tr_len as f64) >= 0.3
+                    && (v.total as f64 / eff_len as f64) >= self.config.min_concentration
                 {
                     Some((d, v.total, tr_start, tr_end))
                 } else {

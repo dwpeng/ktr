@@ -9,6 +9,8 @@ pub struct Config {
     pub window_size: usize,
     pub chunk_size: usize,
     pub max_gap: usize,
+    pub min_concentration: f64,
+    pub min_score: f64,
     pub debug: bool,
 }
 
@@ -25,6 +27,8 @@ impl Config {
             window_size: max_period * 2,
             chunk_size: 500_000,
             max_gap: 20,
+            min_concentration: 0.20,
+            min_score: 0.0,
             debug: false,
         }
     }

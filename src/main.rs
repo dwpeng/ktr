@@ -1,22 +1,23 @@
-pub mod cli;
-pub mod types;
-pub mod encoding;
-pub mod scanner;
 pub mod align;
-pub mod validate;
+pub mod cli;
+pub mod encoding;
 pub mod output;
+pub mod scanner;
+pub mod types;
+pub mod validate;
 
-use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use crate::types::Candidate;
 use clap::Parser;
-use helicase::input::FromFile;
+use cli::Cli;
 use helicase::HelicaseParser;
 use helicase::ParserOptions;
-use cli::Cli;
+use helicase::input::FromFile;
+use rayon::prelude::*;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
 
 // Helicase parser config (different from types::Config)
-const HELICASE_CONFIG: helicase::Config = ParserOptions::default()
-    .config();
+const HELICASE_CONFIG: helicase::Config = ParserOptions::default().config();
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -56,25 +57,36 @@ fn main() -> io::Result<()> {
         // Parse sequence name (first word of header)
         let seq_name = header.split_whitespace().next().unwrap_or(&header);
 
-        // Phase 1: stream scan for candidates (chunked to avoid false positives)
+        // Phase 1: stream scan for candidates (chunked, parallel)
         let overlap = config.max_period * 2;
-        let chunk_size = if config.chunk_size == 0 { seq.len() } else { config.chunk_size };
-        let mut candidates = Vec::new();
+        let chunk_size = if config.chunk_size == 0 {
+            seq.len()
+        } else {
+            config.chunk_size
+        };
 
+        // Build chunk ranges first (safe to share &seq across threads)
+        let mut chunk_ranges: Vec<(usize, usize)> = Vec::new();
         let mut chunk_start: usize = 0;
         while chunk_start < seq.len() {
             let chunk_end = (chunk_start + chunk_size + overlap).min(seq.len());
-            let chunk = &seq[chunk_start..chunk_end];
-
-            let mut chunk_cands = scanner::scan_sequence(seq_name, chunk, &config);
-            // Adjust positions from chunk-local to global coordinates
-            for c in &mut chunk_cands {
-                c.start += chunk_start;
-                c.end += chunk_start;
-            }
-            candidates.extend(chunk_cands);
+            chunk_ranges.push((chunk_start, chunk_end));
             chunk_start += chunk_size;
         }
+
+        // Scan chunks in parallel via Rayon
+        let candidates: Vec<Candidate> = chunk_ranges
+            .par_iter()
+            .flat_map(|&(cs, ce)| {
+                let chunk = &seq[cs..ce];
+                let mut cands = scanner::scan_sequence(seq_name, chunk, &config);
+                for c in &mut cands {
+                    c.start += cs;
+                    c.end += cs;
+                }
+                cands
+            })
+            .collect();
 
         if candidates.is_empty() {
             continue;
@@ -83,11 +95,10 @@ fn main() -> io::Result<()> {
         // Phase 2: parallel validation
         let repeats = validate::validate_candidates(candidates, seq, &config);
 
-        // Write results
-        for tr in &repeats {
+        // Filter by minimum score, then write
+        for tr in repeats.iter().filter(|r| r.score >= config.min_score) {
             output::write_record(&mut out, tr, &config, seq)?;
         }
-
     }
 
     Ok(())

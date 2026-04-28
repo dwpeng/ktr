@@ -39,9 +39,17 @@ pub struct Cli {
     #[arg(long)]
     pub debug: bool,
 
+    /// Minimum concentration of period votes in a run (0.0 to 1.0, default: 0.20)
+    #[arg(long, default_value = "0.20")]
+    pub min_concentration: f64,
+
     /// Chunk size for splitting long sequences (0 = no chunking, default: 500000)
     #[arg(long, default_value = "500000")]
     pub chunk_size: usize,
+
+    /// Minimum score for output filtering (default: 0, no filter)
+    #[arg(long, default_value = "0")]
+    pub min_score: f64,
 }
 
 impl From<&Cli> for Config {
@@ -55,6 +63,8 @@ impl From<&Cli> for Config {
         );
         config.debug = cli.debug;
         config.chunk_size = cli.chunk_size;
+        config.min_concentration = cli.min_concentration;
+        config.min_score = cli.min_score;
         config
     }
 }
