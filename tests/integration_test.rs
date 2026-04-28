@@ -32,13 +32,19 @@ fn test_ktr_on_simple_repeat() {
         .output()
         .expect("Failed to run ktr");
 
-    assert!(output.status.success(), "ktr exited with error: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "ktr exited with error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Should find the ACGT tandem repeat (period ~4)
-    assert!(stdout.contains("simple_repeat"), "Should output the sequence name");
+    assert!(
+        stdout.contains("simple_repeat"),
+        "Should output the sequence name"
+    );
 
     // Verify the output contains a valid tab-separated record with period 4.
     // Expected format: #seq_name\tstart\tend\tperiod\tcopies\t...
@@ -48,11 +54,11 @@ fn test_ktr_on_simple_repeat() {
             return false;
         }
         let fields: Vec<&str> = line.split('\t').collect();
-        fields.len() == 13
-            && fields[0] == "simple_repeat"
-            && fields[3] == "4"
+        fields.len() == 13 && fields[0] == "simple_repeat" && fields[3] == "4"
     });
-    assert!(has_period_4,
+    assert!(
+        has_period_4,
         "Expected a tab-separated output line with period=4 for simple_repeat.\nstdout:\n{}",
-        stdout);
+        stdout
+    );
 }

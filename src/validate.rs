@@ -1,5 +1,8 @@
-use crate::types::{Candidate, TandemRepeat, Config, CopyInfo, AlignParams};
-use crate::align::{wdp_align, SmithWaterman};
+use crate::{
+    align::wdp_align,
+    parasail_backend::ParasailAligner,
+    types::{AlignParams, Candidate, Config, CopyInfo, TandemRepeat},
+};
 
 /// Validate a candidate from Phase 1 and produce a TandemRepeat record.
 /// Returns None if the candidate fails validation checks.
@@ -23,7 +26,12 @@ pub fn validate_candidate(
     }
 
     // 3. Run WDP alignment (unit_start = candidate start, not context start)
-    let aligner = SmithWaterman;
+    let mut aligner = ParasailAligner::new(
+        params.match_score,
+        params.mismatch_penalty,
+        params.gap_open_penalty,
+        params.gap_extend_penalty,
+    );
     let wdp_result = wdp_align(
         full_sequence,
         context_start,
@@ -32,7 +40,7 @@ pub fn validate_candidate(
         d,
         &params,
         config.min_identity,
-        &aligner,
+        &mut aligner,
     )?;
 
     // 3. Extract consensus from copies
@@ -101,8 +109,8 @@ fn merge_repeats(mut repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
         if let Some(last) = merged.last_mut() {
             let gap = tr.start.saturating_sub(last.end);
             let max_gap = last.period.max(1) * 20;
-            let period_ratio = tr.period.max(last.period) as f64
-                / tr.period.min(last.period).max(1) as f64;
+            let period_ratio =
+                tr.period.max(last.period) as f64 / tr.period.min(last.period).max(1) as f64;
 
             if last.seq_name == tr.seq_name
                 && (tr.start <= last.end || gap <= max_gap)
@@ -114,8 +122,7 @@ fn merge_repeats(mut repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
                 let n2 = tr.copies;
                 let total_n = n1 + n2;
 
-                let weighted_period =
-                    (last.period as f64 * n1 + tr.period as f64 * n2) / total_n;
+                let weighted_period = (last.period as f64 * n1 + tr.period as f64 * n2) / total_n;
                 let period = weighted_period.round() as usize;
                 let copies = (new_end - last.start) as f64 / period.max(1) as f64;
 
@@ -193,7 +200,8 @@ fn compute_base_composition(seq: &[u8]) -> [f64; 4] {
 
 /// Compute Shannon entropy of the base composition.
 fn compute_entropy(composition: &[f64; 4]) -> f64 {
-    composition.iter()
+    composition
+        .iter()
         .filter(|&&p| p > 0.0)
         .map(|&p| -p * p.log2())
         .sum()
@@ -263,8 +271,16 @@ mod tests {
         let result = validate_candidate(&candidate, &seq, &config);
         assert!(result.is_some());
         let tr = result.unwrap();
-        assert!(tr.identity > 0.9, "Identity should be high for perfect repeat, got {}", tr.identity);
-        assert!(tr.copies >= 9.0, "Should detect at least 9 copies, got {}", tr.copies);
+        assert!(
+            tr.identity > 0.9,
+            "Identity should be high for perfect repeat, got {}",
+            tr.identity
+        );
+        assert!(
+            tr.copies >= 9.0,
+            "Should detect at least 9 copies, got {}",
+            tr.copies
+        );
     }
 
     #[test]

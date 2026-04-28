@@ -7,7 +7,7 @@ alignment.
 ## Quick Start
 
 ```bash
-# Build (requires Rust nightly for SIMD)
+# Build (requires Rust nightly for edition 2024)
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 # Run on a FASTA genome
@@ -131,8 +131,8 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 cargo test
 ```
 
-The helicase crate requires AVX2 (x64) or NEON (aarch64). On systems without
-these, pass `--features scalar` to helicase.
+The helicase crate uses AVX2 (x64) or NEON (aarch64) for its packed-seq encoding;
+parasail-rs auto-selects the best SIMD kernel at runtime.
 
 ## License
 

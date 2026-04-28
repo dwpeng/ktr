@@ -15,9 +15,18 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(k: usize, max_period: usize, min_run_length: usize,
-               min_matches: usize, min_identity: f64) -> Self {
-        assert!(k > 0 && k <= 32, "kmer length must be between 1 and 32, got {}", k);
+    pub fn new(
+        k: usize,
+        max_period: usize,
+        min_run_length: usize,
+        min_matches: usize,
+        min_identity: f64,
+    ) -> Self {
+        assert!(
+            k > 0 && k <= 32,
+            "kmer length must be between 1 and 32, got {}",
+            k
+        );
         Self {
             k,
             max_period,
@@ -55,7 +64,13 @@ pub struct VoteInfo {
 
 impl VoteInfo {
     pub fn new(pos: usize) -> Self {
-        Self { total: 1, first_pos: pos, last_pos: pos, cluster_end: pos, window_end: pos }
+        Self {
+            total: 1,
+            first_pos: pos,
+            last_pos: pos,
+            cluster_end: pos,
+            window_end: pos,
+        }
     }
 }
 
@@ -71,7 +86,7 @@ pub struct TandemRepeat {
     pub identity: f64,
     pub indel_rate: f64,
     pub score: f64,
-    pub composition: [f64; 4],  // A, C, G, T fraction
+    pub composition: [f64; 4], // A, C, G, T fraction
     pub entropy: f64,
 }
 

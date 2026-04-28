@@ -1,5 +1,6 @@
 use std::io::{self, Write};
-use crate::types::{TandemRepeat, Config};
+
+use crate::types::{Config, TandemRepeat};
 
 const HEADER: &str = "#seq_name\tstart\tend\tperiod\tcopies\tidentity\tindel_rate\tscore\tA_freq\tC_freq\tG_freq\tT_freq\tentropy";
 
@@ -15,7 +16,9 @@ pub fn write_record<W: Write>(
     config: &Config,
     full_seq: &[u8],
 ) -> io::Result<()> {
-    write!(writer, "{}\t{}\t{}\t{:.0}\t{:.2}\t{:.4}\t{:.4}\t{:.1}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
+    write!(
+        writer,
+        "{}\t{}\t{}\t{:.0}\t{:.2}\t{:.4}\t{:.4}\t{:.1}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
         tr.seq_name,
         tr.start + 1,
         tr.end,

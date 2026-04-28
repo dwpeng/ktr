@@ -1,7 +1,11 @@
 use std::collections::VecDeque;
+
 use rustc_hash::FxHashMap;
-use crate::types::{Config, Candidate, VoteInfo};
-use crate::encoding::{encode_kmer, update_kmer};
+
+use crate::{
+    encoding::{encode_kmer, update_kmer},
+    types::{Candidate, Config, VoteInfo},
+};
 
 /// Internal state for the streaming Phase 1 scan.
 struct ScanState<'a> {
@@ -18,7 +22,6 @@ struct ScanState<'a> {
     run_start: Option<usize>,
     run_end: usize,
     run_periods: Vec<usize>,
-
 
     // Period voting
     period_votes: FxHashMap<usize, VoteInfo>,
@@ -61,8 +64,15 @@ impl<'a> ScanState<'a> {
                     continue;
                 }
                 match encode_kmer(self.seq, i, k) {
-                    Some(c) => { code = c; valid = true; }
-                    None => { self.flush_run(i + k); self.reset_run(); continue; }
+                    Some(c) => {
+                        code = c;
+                        valid = true;
+                    }
+                    None => {
+                        self.flush_run(i + k);
+                        self.reset_run();
+                        continue;
+                    }
                 }
             } else {
                 let enter = i + k - 1;
@@ -109,7 +119,8 @@ impl<'a> ScanState<'a> {
 
     fn handle_repeat(&mut self, i: usize, _code: u64, d: usize) {
         // Update period votes
-        self.period_votes.entry(d)
+        self.period_votes
+            .entry(d)
             .and_modify(|v| {
                 v.total += 1;
                 v.last_pos = i;
@@ -155,7 +166,9 @@ impl<'a> ScanState<'a> {
 
         // Evaluate each period using its vote positions as the TR boundaries,
         // preventing non-TR flanks from diluting the concentration.
-        let best = self.run_periods.iter()
+        let best = self
+            .run_periods
+            .iter()
             .filter_map(|&d| self.period_votes.get(&d).map(|v| (d, v)))
             .filter_map(|(d, v)| {
                 // The first period vote occurs at the 2nd copy start.
@@ -200,18 +213,12 @@ impl<'a> ScanState<'a> {
         if i % 1000 != 0 {
             return;
         }
-        self.period_votes.retain(|&d, v| {
-            i - v.window_end <= d * 10
-        });
+        self.period_votes.retain(|&d, v| i - v.window_end <= d * 10);
     }
 }
 
 /// Run Phase 1 streaming scan on a single sequence.
-pub fn scan_sequence(
-    seq_name: &str,
-    seq: &[u8],
-    config: &Config,
-) -> Vec<Candidate> {
+pub fn scan_sequence(seq_name: &str, seq: &[u8], config: &Config) -> Vec<Candidate> {
     let mut state = ScanState::new(config, seq, seq_name);
     state.run()
 }
@@ -236,15 +243,21 @@ mod tests {
         let seq = make_tandem(b"ACGT", 20);
         let config = Config::new(5, 50, 20, 3, 0.7);
         let candidates = scan_sequence("test", &seq, &config);
-        assert!(!candidates.is_empty(), "Should detect at least one candidate");
+        assert!(
+            !candidates.is_empty(),
+            "Should detect at least one candidate"
+        );
         // Period should be 4 or a multiple/vote
-        assert!(candidates.iter().any(|c| c.period == 4 || c.period == 8),
-            "Expected period 4 or related, got: {:?}", candidates);
+        assert!(
+            candidates.iter().any(|c| c.period == 4 || c.period == 8),
+            "Expected period 4 or related, got: {:?}",
+            candidates
+        );
     }
 
     #[test]
     fn test_scan_longer_period() {
-        let seq = make_tandem(b"ACGTACGT", 10);  // period 8
+        let seq = make_tandem(b"ACGTACGT", 10); // period 8
         let config = Config::new(5, 50, 30, 3, 0.7);
         let candidates = scan_sequence("test", &seq, &config);
         assert!(!candidates.is_empty(), "Should detect period-8 repeat");
@@ -255,7 +268,10 @@ mod tests {
         let seq = b"GCTAGCTAGCTAGCTAGCTAGC";
         let config = Config::new(5, 50, 40, 3, 0.7);
         let candidates = scan_sequence("test", seq, &config);
-        assert!(candidates.is_empty(), "Random-like sequence should not produce candidates");
+        assert!(
+            candidates.is_empty(),
+            "Random-like sequence should not produce candidates"
+        );
     }
 
     #[test]

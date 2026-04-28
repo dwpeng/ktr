@@ -1,5 +1,6 @@
-use crate::types::Config;
 use clap::Parser;
+
+use crate::types::Config;
 
 #[derive(Parser, Debug)]
 #[command(

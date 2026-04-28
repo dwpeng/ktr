@@ -1,27 +1,24 @@
-pub mod align;
-pub mod cli;
-pub mod encoding;
-pub mod output;
-pub mod scanner;
-pub mod types;
-pub mod validate;
+use std::{
+    fs::File,
+    io::{self, BufWriter, Write},
+};
 
-use crate::types::Candidate;
 use clap::Parser;
-use cli::Cli;
-use helicase::HelicaseParser;
-use helicase::ParserOptions;
-use helicase::input::FromFile;
+use helicase::{HelicaseParser, ParserOptions, input::FromFile};
+use ktr::{
+    cli::Cli,
+    output, scanner,
+    types::{Candidate, Config},
+    validate,
+};
 use rayon::prelude::*;
-use std::fs::File;
-use std::io::{self, BufWriter, Write};
 
 // Helicase parser config (different from types::Config)
 const HELICASE_CONFIG: helicase::Config = ParserOptions::default().config();
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
-    let config = types::Config::from(&cli);
+    let config = Config::from(&cli);
 
     if cli.threads > 0 {
         rayon::ThreadPoolBuilder::new()
@@ -41,7 +38,7 @@ fn main() -> io::Result<()> {
             let file = File::create(path)?;
             Box::new(BufWriter::new(file))
         }
-        None => Box::new(stdout.lock()),
+        None => Box::new(BufWriter::new(stdout.lock())),
     };
     output::write_header(&mut out)?;
 

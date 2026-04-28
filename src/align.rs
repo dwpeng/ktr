@@ -9,14 +9,14 @@ pub trait PairwiseAligner {
     ///
     /// `identity` = matches / max(len(window), len(consensus))
     /// `indel_rate` = (total - matches) / total
-    fn align(&self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64);
+    fn align(&mut self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64);
 }
 
 /// Default Smith-Waterman implementation using flattened arrays.
 pub struct SmithWaterman;
 
 impl PairwiseAligner for SmithWaterman {
-    fn align(&self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64) {
+    fn align(&mut self, window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64) {
         align_window_to_consensus(window, consensus, params)
     }
 }
@@ -32,11 +32,11 @@ pub fn wdp_align(
     seq: &[u8],
     start: usize,
     end: usize,
-    unit_start: usize,   // absolute position where the TR begins (for consensus)
+    unit_start: usize, // absolute position where the TR begins (for consensus)
     guess_period: usize,
     params: &AlignParams,
     min_identity: f64,
-    aligner: &impl PairwiseAligner,
+    aligner: &mut impl PairwiseAligner,
 ) -> Option<WdpResult> {
     if end <= start || guess_period == 0 {
         return None;
@@ -117,8 +117,16 @@ pub fn wdp_align(
     let total_identity: f64 = copies.iter().skip(1).map(|c| c.identity).sum();
     let total_indel: f64 = copies.iter().skip(1).map(|c| c.indel_rate).sum();
     let n_copies_gt1 = (copies.len() - 1) as f64;
-    let avg_identity = if n_copies_gt1 > 0.0 { total_identity / n_copies_gt1 } else { 0.0 };
-    let avg_indel = if n_copies_gt1 > 0.0 { total_indel / n_copies_gt1 } else { 0.0 };
+    let avg_identity = if n_copies_gt1 > 0.0 {
+        total_identity / n_copies_gt1
+    } else {
+        0.0
+    };
+    let avg_indel = if n_copies_gt1 > 0.0 {
+        total_indel / n_copies_gt1
+    } else {
+        0.0
+    };
 
     Some(WdpResult {
         copies,
@@ -144,11 +152,7 @@ pub struct WdpResult {
 ///
 /// Uses flattened arrays for contiguous memory access and smaller (i16) score
 /// storage to improve cache behaviour.
-fn align_window_to_consensus(
-    window: &[u8],
-    consensus: &[u8],
-    params: &AlignParams,
-) -> (f64, f64) {
+fn align_window_to_consensus(window: &[u8], consensus: &[u8], params: &AlignParams) -> (f64, f64) {
     let n = window.len();
     let m = consensus.len();
     if n == 0 || m == 0 {
@@ -181,8 +185,8 @@ fn align_window_to_consensus(
             };
 
             let diag = dp[prev + j - 1] as i32 + match_score;
-            let up   = dp[prev + j]     as i32 + gap_penalty;
-            let left = dp[row  + j - 1] as i32 + gap_penalty;
+            let up = dp[prev + j] as i32 + gap_penalty;
+            let left = dp[row + j - 1] as i32 + gap_penalty;
 
             let (val, dir) = if diag >= up && diag >= left && diag > 0 {
                 (diag, 1u8)
@@ -281,7 +285,7 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &sw());
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &mut sw());
         assert!(result.is_some());
         let result = result.unwrap();
         assert!(result.copies.len() >= 2);
@@ -298,7 +302,7 @@ mod tests {
         // Introduce a substitution
         seq[6] = b'T';
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.5, &sw());
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.5, &mut sw());
         assert!(result.is_some());
     }
 
@@ -306,7 +310,7 @@ mod tests {
     fn test_wdp_no_repeat() {
         let seq = b"GGGGGAAAAACCCCCTTTTTAA";
         let params = AlignParams::default();
-        let result = wdp_align(seq, 0, seq.len(), 0, 5, &params, 0.7, &sw());
+        let result = wdp_align(seq, 0, seq.len(), 0, 5, &params, 0.7, &mut sw());
         assert!(result.is_none());
     }
 
@@ -318,10 +322,14 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &sw());
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7, &mut sw());
         assert!(result.is_some());
         let r = result.unwrap();
         // Perfect repeat should have high score
-        assert!(r.score > 80.0, "Score should be high for perfect repeat, got {}", r.score);
+        assert!(
+            r.score > 80.0,
+            "Score should be high for perfect repeat, got {}",
+            r.score
+        );
     }
 }
