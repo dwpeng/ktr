@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use crate::types::TandemRepeat;
+use crate::types::{TandemRepeat, Config};
 
 const HEADER: &str = "#seq_name\tstart\tend\tperiod\tcopies\tidentity\tindel_rate\tscore\tA_freq\tC_freq\tG_freq\tT_freq\tentropy";
 
@@ -9,12 +9,15 @@ pub fn write_header<W: Write>(writer: &mut W) -> io::Result<()> {
 }
 
 /// Write a single TandemRepeat record in TAB format.
-pub fn write_record<W: Write>(writer: &mut W, tr: &TandemRepeat) -> io::Result<()> {
-    writeln!(
-        writer,
-        "{}\t{}\t{}\t{:.0}\t{:.2}\t{:.4}\t{:.4}\t{:.1}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
+pub fn write_record<W: Write>(
+    writer: &mut W,
+    tr: &TandemRepeat,
+    config: &Config,
+    full_seq: &[u8],
+) -> io::Result<()> {
+    write!(writer, "{}\t{}\t{}\t{:.0}\t{:.2}\t{:.4}\t{:.4}\t{:.1}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\t{:.4}",
         tr.seq_name,
-        tr.start,
+        tr.start + 1,
         tr.end,
         tr.period,
         tr.copies,
@@ -26,7 +29,22 @@ pub fn write_record<W: Write>(writer: &mut W, tr: &TandemRepeat) -> io::Result<(
         tr.composition[2],
         tr.composition[3],
         tr.entropy,
-    )
+    )?;
+
+    if config.debug {
+        // Consensus unit sequence
+        let consensus_str = String::from_utf8_lossy(&tr.consensus);
+        write!(writer, "\t{}", consensus_str)?;
+        // Full repeat region sequence
+        if tr.end <= full_seq.len() {
+            let region_str = String::from_utf8_lossy(&full_seq[tr.start..tr.end]);
+            write!(writer, "\t{}", region_str)?;
+        } else {
+            write!(writer, "\t")?;
+        }
+    }
+
+    writeln!(writer)
 }
 
 #[cfg(test)]
@@ -58,11 +76,12 @@ mod tests {
             composition: [0.25, 0.25, 0.25, 0.25],
             entropy: 2.0,
         };
+        let config = Config::new(5, 50, 20, 3, 0.7);
         let mut buf = Vec::new();
-        write_record(&mut buf, &tr).unwrap();
+        write_record(&mut buf, &tr, &config, b"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN").unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("chr1"));
-        assert!(output.contains("100"));
+        assert!(output.contains("101"));
         assert!(output.contains("200"));
         assert!(output.contains("0.95"));
     }
@@ -82,8 +101,9 @@ mod tests {
             composition: [0.2, 0.3, 0.3, 0.2],
             entropy: 1.97,
         };
+        let config = Config::new(5, 50, 20, 3, 0.7);
         let mut buf = Vec::new();
-        write_record(&mut buf, &tr).unwrap();
+        write_record(&mut buf, &tr, &config, b"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN").unwrap();
         let output = String::from_utf8(buf).unwrap();
         // Verify TAB-separated with correct field count (13 fields)
         let fields: Vec<&str> = output.trim().split('\t').collect();

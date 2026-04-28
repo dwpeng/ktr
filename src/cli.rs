@@ -34,16 +34,27 @@ pub struct Cli {
     /// Number of threads for Phase 2 parallel validation
     #[arg(long, default_value = "0")]
     pub threads: usize,
+
+    /// Debug mode: output repeat sequence and consensus unit in TSV
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Chunk size for splitting long sequences (0 = no chunking, default: 500000)
+    #[arg(long, default_value = "500000")]
+    pub chunk_size: usize,
 }
 
 impl From<&Cli> for Config {
     fn from(cli: &Cli) -> Self {
-        Config::new(
+        let mut config = Config::new(
             cli.k,
             cli.max_period,
             cli.min_run_length,
             cli.min_matches,
             cli.min_identity,
-        )
+        );
+        config.debug = cli.debug;
+        config.chunk_size = cli.chunk_size;
+        config
     }
 }

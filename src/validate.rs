@@ -8,10 +8,12 @@ pub fn validate_candidate(
     full_sequence: &[u8],
     config: &Config,
 ) -> Option<TandemRepeat> {
-    let params = AlignParams::default();
     let d = candidate.period;
 
-    // 1. Extract candidate region with flanks
+    // 1. Period-adaptive alignment parameters (longer periods → softer penalties)
+    let params = AlignParams::for_period(d);
+
+    // 2. Extract candidate region with flanks
     let extend = d.max(100);
     let context_start = candidate.start.saturating_sub(extend);
     let context_end = (candidate.end + extend).min(full_sequence.len());
@@ -20,11 +22,12 @@ pub fn validate_candidate(
         return None;
     }
 
-    // 2. Run WDP alignment
+    // 3. Run WDP alignment (unit_start = candidate start, not context start)
     let wdp_result = wdp_align(
         full_sequence,
         context_start,
         context_end,
+        candidate.start,
         d,
         &params,
         config.min_identity,
@@ -61,7 +64,8 @@ pub fn validate_candidate(
     })
 }
 
-/// Validate a batch of candidates using Rayon parallel iterator.
+/// Validate a batch of candidates using Rayon parallel iterator,
+/// then merge overlapping repeat records from the same locus.
 pub fn validate_candidates(
     candidates: Vec<Candidate>,
     full_sequence: &[u8],
@@ -69,10 +73,78 @@ pub fn validate_candidates(
 ) -> Vec<TandemRepeat> {
     use rayon::prelude::*;
 
-    candidates
+    let repeats: Vec<_> = candidates
         .par_iter()
         .filter_map(|candidate| validate_candidate(candidate, full_sequence, config))
-        .collect()
+        .collect();
+
+    merge_repeats(repeats)
+}
+
+/// Merge overlapping or adjacent tandem repeats from the same locus.
+///
+/// A single TR region can produce multiple detections from slightly different
+/// start positions. This function groups them by proximity and period similarity,
+/// merging each group into a single record.
+fn merge_repeats(mut repeats: Vec<TandemRepeat>) -> Vec<TandemRepeat> {
+    if repeats.is_empty() {
+        return Vec::new();
+    }
+
+    repeats.sort_by(|a, b| a.seq_name.cmp(&b.seq_name).then(a.start.cmp(&b.start)));
+
+    let mut merged: Vec<TandemRepeat> = Vec::new();
+
+    for tr in repeats {
+        if let Some(last) = merged.last_mut() {
+            let gap = tr.start.saturating_sub(last.end);
+            let max_gap = last.period.max(1) * 20;
+            let period_ratio = tr.period.max(last.period) as f64
+                / tr.period.min(last.period).max(1) as f64;
+
+            if last.seq_name == tr.seq_name
+                && (tr.start <= last.end || gap <= max_gap)
+                && period_ratio <= 2.0
+            {
+                // Merge tr into last
+                let new_end = last.end.max(tr.end);
+                let n1 = last.copies;
+                let n2 = tr.copies;
+                let total_n = n1 + n2;
+
+                let weighted_period =
+                    (last.period as f64 * n1 + tr.period as f64 * n2) / total_n;
+                let period = weighted_period.round() as usize;
+                let copies = (new_end - last.start) as f64 / period.max(1) as f64;
+
+                // Keep consensus from the sub-TR with more copies (more representative)
+                let (consensus, composition, entropy) = if tr.copies > last.copies {
+                    (tr.consensus, tr.composition, tr.entropy)
+                } else {
+                    (last.consensus.clone(), last.composition, last.entropy)
+                };
+
+                let identity = (last.identity * n1 + tr.identity * n2) / total_n;
+                let indel_rate = (last.indel_rate * n1 + tr.indel_rate * n2) / total_n;
+                let score = identity * 100.0 - indel_rate * 50.0;
+
+                last.end = new_end;
+                last.period = period;
+                last.copies = copies;
+                last.identity = identity;
+                last.indel_rate = indel_rate;
+                last.score = score;
+                last.consensus = consensus;
+                last.composition = composition;
+                last.entropy = entropy;
+
+                continue;
+            }
+        }
+        merged.push(tr);
+    }
+
+    merged
 }
 
 /// Extract consensus sequence from aligned copies.

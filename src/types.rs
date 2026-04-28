@@ -7,6 +7,9 @@ pub struct Config {
     pub min_matches: usize,
     pub min_identity: f64,
     pub window_size: usize,
+    pub chunk_size: usize,
+    pub max_gap: usize,
+    pub debug: bool,
 }
 
 impl Config {
@@ -20,6 +23,9 @@ impl Config {
             min_matches,
             min_identity,
             window_size: max_period * 2,
+            chunk_size: 500_000,
+            max_gap: 20,
+            debug: false,
         }
     }
 }
@@ -39,12 +45,13 @@ pub struct VoteInfo {
     pub total: usize,
     pub first_pos: usize,
     pub last_pos: usize,
+    pub cluster_end: usize,
     pub window_end: usize,
 }
 
 impl VoteInfo {
     pub fn new(pos: usize) -> Self {
-        Self { total: 1, first_pos: pos, last_pos: pos, window_end: pos }
+        Self { total: 1, first_pos: pos, last_pos: pos, cluster_end: pos, window_end: pos }
     }
 }
 
@@ -82,13 +89,25 @@ pub struct AlignParams {
     pub gap_extend_penalty: i32,
 }
 
-impl Default for AlignParams {
-    fn default() -> Self {
+impl AlignParams {
+    /// Compute alignment parameters adapted to repeat period.
+    /// Longer repeats inherently tolerate more divergence (per-base mutation
+    /// rate accumulates over more bases), so penalties are softened.
+    /// The min_identity threshold in Config still gates overall quality.
+    pub fn for_period(period: usize) -> Self {
+        // Scale: log₂-based so impact tapers off — p=10→1.0, p=100→0.7, p=500→0.55
+        let scale = (2.0 / (period.max(2) as f64).log2()).clamp(0.5, 1.2);
         Self {
             match_score: 2,
-            mismatch_penalty: -5,
-            gap_open_penalty: -7,
-            gap_extend_penalty: -2,
+            mismatch_penalty: -(5.0 * scale).round().max(2.0) as i32,
+            gap_open_penalty: -(7.0 * scale).round().max(2.0) as i32,
+            gap_extend_penalty: -(2.0 * scale).round().max(1.0) as i32,
         }
+    }
+}
+
+impl Default for AlignParams {
+    fn default() -> Self {
+        Self::for_period(100)
     }
 }

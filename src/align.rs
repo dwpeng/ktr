@@ -11,32 +11,39 @@ pub fn wdp_align(
     seq: &[u8],
     start: usize,
     end: usize,
+    unit_start: usize,   // absolute position where the TR begins (for consensus)
     guess_period: usize,
     params: &AlignParams,
     min_identity: f64,
 ) -> Option<WdpResult> {
+    if end <= start || guess_period == 0 {
+        return None;
+    }
     let region = &seq[start..end];
     let n = region.len();
 
-    if n < guess_period * 2 || guess_period == 0 {
+    // Extract consensus from the actual TR start, not from context start
+    let offset = unit_start.saturating_sub(start);
+    let unit_len = guess_period.min((n - offset).max(0));
+    if unit_len < guess_period / 2 || offset + unit_len > n {
         return None;
     }
-
-    // Phase 2a: Extract initial consensus from first copy
-    let unit_len = guess_period.min(region.len());
-    let mut consensus = region[..unit_len].to_vec();
+    let mut consensus = region[offset..offset + unit_len].to_vec();
     let mut copies: Vec<CopyInfo> = Vec::new();
 
     // Add the first copy (assumed complete)
     copies.push(CopyInfo {
-        start: start,
-        end: start + unit_len,
+        start: unit_start,
+        end: unit_start + unit_len,
         identity: 1.0,
         indel_rate: 0.0,
     });
 
     // Phase 2b: Iteratively align and extend
-    let mut pos = unit_len;
+    let mut pos = offset + unit_len;
+    if n < guess_period * 2 || pos >= n {
+        return None;
+    }
     while pos < n {
         let window_end = (pos + consensus.len()).min(n);
         let window = &region[pos..window_end];
@@ -173,44 +180,38 @@ fn align_window_to_consensus(
         }
     }
 
-    // Trace back from the cell with the maximum score to compute alignment stats.
+    // Trace back from the cell with the maximum score to compute matches.
     let mut matches = 0usize;
-    let mut aligned_len = 0usize;
     let mut i = max_i;
     let mut j = max_j;
 
     while i > 0 && j > 0 && trace[i][j] != 0 {
         match trace[i][j] {
             1 => {
-                // Diagonal: aligned bases
                 if window[i - 1] == consensus[j - 1] {
                     matches += 1;
                 }
-                aligned_len += 1;
                 i -= 1;
                 j -= 1;
             }
             2 => {
-                // Up: gap in consensus (insertion in window)
-                aligned_len += 1;
                 i -= 1;
             }
             3 => {
-                // Left: gap in window (deletion)
-                aligned_len += 1;
                 j -= 1;
             }
             _ => break,
         }
     }
 
-    let identity = if aligned_len > 0 {
-        matches as f64 / aligned_len as f64
+    let total_len = std::cmp::max(n, m);
+    let identity = if total_len > 0 {
+        matches as f64 / total_len as f64
     } else {
         0.0
     };
-    let indel_rate = if aligned_len > 0 {
-        (aligned_len - matches) as f64 / aligned_len as f64
+    let indel_rate = if total_len > 0 {
+        (total_len - matches) as f64 / total_len as f64
     } else {
         0.0
     };
@@ -255,7 +256,7 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 4, &params, 0.7);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7);
         assert!(result.is_some());
         let result = result.unwrap();
         assert!(result.copies.len() >= 2);
@@ -272,7 +273,7 @@ mod tests {
         // Introduce a substitution
         seq[6] = b'T';
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 4, &params, 0.5);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.5);
         assert!(result.is_some());
     }
 
@@ -280,7 +281,7 @@ mod tests {
     fn test_wdp_no_repeat() {
         let seq = b"GGGGGAAAAACCCCCTTTTTAA";
         let params = AlignParams::default();
-        let result = wdp_align(seq, 0, seq.len(), 5, &params, 0.7);
+        let result = wdp_align(seq, 0, seq.len(), 0, 5, &params, 0.7);
         assert!(result.is_none());
     }
 
@@ -292,7 +293,7 @@ mod tests {
             seq.extend_from_slice(unit);
         }
         let params = AlignParams::default();
-        let result = wdp_align(&seq, 0, seq.len(), 4, &params, 0.7);
+        let result = wdp_align(&seq, 0, seq.len(), 0, 4, &params, 0.7);
         assert!(result.is_some());
         let r = result.unwrap();
         // Perfect repeat should have high score

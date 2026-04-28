@@ -56,23 +56,38 @@ fn main() -> io::Result<()> {
         // Parse sequence name (first word of header)
         let seq_name = header.split_whitespace().next().unwrap_or(&header);
 
-        // Phase 1: stream scan for candidates
-        let candidates = scanner::scan_sequence(seq_name, seq, &config);
+        // Phase 1: stream scan for candidates (chunked to avoid false positives)
+        let overlap = config.max_period * 2;
+        let chunk_size = if config.chunk_size == 0 { seq.len() } else { config.chunk_size };
+        let mut candidates = Vec::new();
+
+        let mut chunk_start: usize = 0;
+        while chunk_start < seq.len() {
+            let chunk_end = (chunk_start + chunk_size + overlap).min(seq.len());
+            let chunk = &seq[chunk_start..chunk_end];
+
+            let mut chunk_cands = scanner::scan_sequence(seq_name, chunk, &config);
+            // Adjust positions from chunk-local to global coordinates
+            for c in &mut chunk_cands {
+                c.start += chunk_start;
+                c.end += chunk_start;
+            }
+            candidates.extend(chunk_cands);
+            chunk_start += chunk_size;
+        }
+
         if candidates.is_empty() {
             continue;
         }
-
-        eprintln!("{}: {} candidates from Phase 1", seq_name, candidates.len());
 
         // Phase 2: parallel validation
         let repeats = validate::validate_candidates(candidates, seq, &config);
 
         // Write results
         for tr in &repeats {
-            output::write_record(&mut out, tr)?;
+            output::write_record(&mut out, tr, &config, seq)?;
         }
 
-        eprintln!("{}: {} tandem repeats validated", seq_name, repeats.len());
     }
 
     Ok(())

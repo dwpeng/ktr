@@ -18,6 +18,7 @@ struct ScanState<'a> {
     run_end: usize,
     run_periods: Vec<usize>,
 
+
     // Period voting
     period_votes: HashMap<usize, VoteInfo>,
 
@@ -46,7 +47,6 @@ impl<'a> ScanState<'a> {
     fn run(&mut self) -> Vec<Candidate> {
         let k = self.config.k;
         let last_pos = self.seq_len.saturating_sub(k);
-
         for i in 0..=last_pos {
             // Check for invalid bases (N etc.) before encoding
             let mut has_valid = true;
@@ -102,6 +102,11 @@ impl<'a> ScanState<'a> {
             .and_modify(|v| {
                 v.total += 1;
                 v.last_pos = i;
+                // Track the dense cluster end: consecutive votes close together
+                // indicate a true TR; isolated votes (gap > d*3) are likely noise.
+                if i - v.cluster_end <= d * 3 {
+                    v.cluster_end = i;
+                }
                 v.window_end = i;
             })
             .or_insert_with(|| VoteInfo::new(i));
@@ -137,38 +142,45 @@ impl<'a> ScanState<'a> {
             return;
         }
 
-        if let Some(d) = self.find_best_period(rs, end_pos) {
+        // Evaluate each period using its vote positions as the TR boundaries,
+        // preventing non-TR flanks from diluting the concentration.
+        let best = self.run_periods.iter()
+            .filter_map(|&d| self.period_votes.get(&d).map(|v| (d, v)))
+            .filter_map(|(d, v)| {
+                // The first period vote occurs at the 2nd copy start.
+                // Subtract one period to find the true TR start.
+                let tr_start = v.first_pos.saturating_sub(d);
+                let tr_end = (v.cluster_end + self.config.k).min(end_pos);
+                if tr_end <= tr_start {
+                    return None;
+                }
+                let tr_len = tr_end - tr_start;
+                if tr_len >= self.config.min_run_length
+                    && v.total >= self.config.min_matches
+                    && (v.total as f64 / tr_len as f64) >= 0.3
+                {
+                    Some((d, v.total, tr_start, tr_end))
+                } else {
+                    None
+                }
+            })
+            .max_by_key(|&(_, total, _, _)| total);
+
+        if let Some((d, _, tr_start, tr_end)) = best {
             self.candidates.push(Candidate {
                 seq_name: self.seq_name.to_string(),
-                start: rs,
-                end: end_pos,
+                start: tr_start,
+                end: tr_end,
                 period: d,
             });
         }
-    }
-
-    fn find_best_period(&self, run_start: usize, run_end: usize) -> Option<usize> {
-        self.run_periods.iter()
-            .filter_map(|&d| {
-                self.period_votes.get(&d).and_then(|v| {
-                    if v.total >= self.config.min_matches
-                        && v.last_pos >= run_start
-                        && v.first_pos <= run_end
-                    {
-                        Some((d, v.total))
-                    } else {
-                        None
-                    }
-                })
-            })
-            .max_by_key(|&(_, total)| total)
-            .map(|(d, _)| d)
     }
 
     fn reset_run(&mut self) {
         self.run_start = None;
         self.run_end = 0;
         self.run_periods.clear();
+        self.period_votes.clear();
     }
 
     fn periodic_cleanup(&mut self, i: usize) {
@@ -176,7 +188,7 @@ impl<'a> ScanState<'a> {
             return;
         }
         self.period_votes.retain(|&d, v| {
-            i - v.window_end <= d * 2
+            i - v.window_end <= d * 10
         });
     }
 }
