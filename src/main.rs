@@ -54,7 +54,7 @@ fn main() -> io::Result<()> {
         // Parse sequence name (first word of header)
         let seq_name = header.split_whitespace().next().unwrap_or(&header);
 
-        // Phase 1: stream scan for candidates (chunked, parallel)
+        // Phase 1: stream scan for candidates (chunked, parallel, multi-k)
         let overlap = config.max_period * 2;
         let chunk_size = if config.chunk_size == 0 {
             seq.len()
@@ -71,23 +71,33 @@ fn main() -> io::Result<()> {
             chunk_start += chunk_size;
         }
 
-        // Scan chunks in parallel via Rayon
-        let candidates: Vec<Candidate> = chunk_ranges
-            .par_iter()
-            .flat_map(|&(cs, ce)| {
-                let chunk = &seq[cs..ce];
-                let mut cands = scanner::scan_sequence(seq_name, chunk, &config);
-                for c in &mut cands {
-                    c.start += cs;
-                    c.end += cs;
-                }
-                cands
+        // Run Phase 1 for each k-mer length and collect all candidates
+        let all_candidates: Vec<Candidate> = config
+            .k_values
+            .iter()
+            .flat_map(|&k| {
+                let k_config = config.with_k(k);
+                chunk_ranges
+                    .par_iter()
+                    .flat_map(|&(cs, ce)| {
+                        let chunk = &seq[cs..ce];
+                        let mut cands = scanner::scan_sequence(seq_name, chunk, &k_config);
+                        for c in &mut cands {
+                            c.start += cs;
+                            c.end += cs;
+                        }
+                        cands
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect();
 
-        if candidates.is_empty() {
+        if all_candidates.is_empty() {
             continue;
         }
+
+        // Dedup candidates across k values to avoid redundant Phase 2 validation
+        let candidates = dedup_candidates(all_candidates);
 
         // Phase 2: parallel validation
         let repeats = validate::validate_candidates(candidates, seq, &config);
@@ -99,4 +109,36 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/// Dedup overlapping candidates from different k-mer scans.
+/// When two candidates overlap significantly, keeps the better one.
+/// Quality is measured as approximate copies = span / period.
+fn dedup_candidates(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
+    if candidates.len() < 2 {
+        return candidates;
+    }
+    candidates.sort_by(|a, b| a.seq_name.cmp(&b.seq_name).then(a.start.cmp(&b.start)));
+
+    let mut deduped: Vec<Candidate> = Vec::with_capacity(candidates.len());
+    for c in candidates {
+        if let Some(last) = deduped.last_mut() {
+            if last.seq_name == c.seq_name {
+                let overlap = last.end.min(c.end).saturating_sub(last.start.max(c.start));
+                let min_span = (last.end - last.start).min(c.end - c.start);
+                if overlap > 0 && (overlap as f64 / min_span as f64) > 0.5 {
+                    // Overlap > 50%: same region, keep candidate with higher
+                    // quality (span / period = approximate copy count).
+                    let last_q = (last.end - last.start) as f64 / last.period.max(1) as f64;
+                    let c_q = (c.end - c.start) as f64 / c.period.max(1) as f64;
+                    if c_q > last_q && c.period > 0 {
+                        *last = c;
+                    }
+                    continue;
+                }
+            }
+        }
+        deduped.push(c);
+    }
+    deduped
 }

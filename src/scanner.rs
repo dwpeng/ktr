@@ -27,6 +27,7 @@ struct ScanState<'a> {
     period_votes: FxHashMap<usize, VoteInfo>,
 
     // Output
+    prev_candidate: Option<Candidate>,
     candidates: Vec<Candidate>,
 }
 
@@ -43,6 +44,7 @@ impl<'a> ScanState<'a> {
             run_end: 0,
             run_periods: Vec::new(),
             period_votes: FxHashMap::default(),
+            prev_candidate: None,
             candidates: Vec::new(),
         }
     }
@@ -193,12 +195,37 @@ impl<'a> ScanState<'a> {
             .max_by_key(|&(_, total, _, _)| total);
 
         if let Some((d, _, tr_start, tr_end)) = best {
-            self.candidates.push(Candidate {
+            let candidate = Candidate {
                 seq_name: self.seq_name.to_string(),
                 start: tr_start,
                 end: tr_end,
                 period: d,
-            });
+            };
+
+            // Try to merge with previous candidate if they're close and
+            // share the same sequence. This bridges mutation-induced gaps.
+            let merged = if let Some(prev) = &self.prev_candidate {
+                prev.seq_name == candidate.seq_name
+                    && candidate.start >= prev.start
+                    && candidate.start.saturating_sub(prev.end) <= self.config.max_gap
+                    && candidate.period.max(prev.period) as f64
+                        / candidate.period.min(prev.period).max(1) as f64
+                        <= 2.0
+            } else {
+                false
+            };
+
+            if merged {
+                if let Some(prev) = self.candidates.last_mut() {
+                    prev.end = prev.end.max(candidate.end);
+                }
+                self.prev_candidate = Some(candidate);
+            } else {
+                self.prev_candidate = Some(candidate.clone());
+                self.candidates.push(candidate);
+            }
+        } else {
+            self.prev_candidate = None;
         }
     }
 
@@ -293,6 +320,8 @@ mod tests {
 
         let config = Config::new(5, 50, 20, 3, 0.7);
         let candidates = scan_sequence("test", &seq, &config);
-        assert_eq!(candidates.len(), 2, "N should split into two separate runs");
+        // With prev_candidate merging, runs on both sides of N are merged
+        // into a single candidate (gap=1 which is ≤ max_gap=20).
+        assert_eq!(candidates.len(), 1, "N splits run but prev_candidate merging should bridge it");
     }
 }

@@ -2,6 +2,7 @@
 #[derive(Debug, Clone)]
 pub struct Config {
     pub k: usize,
+    pub k_values: Vec<usize>,
     pub max_period: usize,
     pub min_run_length: usize,
     pub min_matches: usize,
@@ -29,6 +30,7 @@ impl Config {
         );
         Self {
             k,
+            k_values: vec![k],
             max_period,
             min_run_length,
             min_matches,
@@ -40,6 +42,14 @@ impl Config {
             min_score: 0.0,
             debug: false,
         }
+    }
+
+    /// Return a clone of this config with a different k-mer length.
+    /// Used internally for multi-k scanning.
+    pub fn with_k(&self, new_k: usize) -> Self {
+        let mut c = self.clone();
+        c.k = new_k;
+        c
     }
 }
 

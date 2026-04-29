@@ -12,9 +12,9 @@ pub struct Cli {
     /// Input FASTA file
     pub fasta: String,
 
-    /// kmer length (default: 5)
+    /// k-mer length(s), comma-separated for multi-k (e.g. 3,5,7)
     #[arg(short, long, default_value = "5")]
-    pub k: usize,
+    pub k: String,
 
     /// Maximum tandem repeat period (also sets sliding window = 2 * max_period)
     #[arg(short, long, default_value = "5000")]
@@ -59,13 +59,30 @@ pub struct Cli {
 
 impl From<&Cli> for Config {
     fn from(cli: &Cli) -> Self {
+        // Parse comma-separated k values
+        let k_values: Vec<usize> = cli
+            .k
+            .split(',')
+            .map(|s| {
+                s.trim()
+                    .parse()
+                    .expect("Invalid k-mer length, expected positive integers")
+            })
+            .collect();
+        assert!(
+            !k_values.is_empty(),
+            "At least one k-mer length must be specified"
+        );
+        let primary_k = k_values[0];
+
         let mut config = Config::new(
-            cli.k,
+            primary_k,
             cli.period,
             cli.min_run_length,
             cli.min_matches,
             cli.min_identity,
         );
+        config.k_values = k_values;
         config.debug = cli.debug;
         config.chunk_size = cli.chunk_size;
         config.min_concentration = cli.min_concentration;
